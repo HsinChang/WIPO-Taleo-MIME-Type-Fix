@@ -1,8 +1,19 @@
 // ==UserScript==
-// @name         WIPO‑Taleo MIME‑Type Bypass (v8.5)
+// @name         WIPO‑Taleo MIME‑Type Bypass (v8.6)
 // @namespace    https://github.com/HsinChang
-// @version      8.5
-// @description  Bypasses strict MIME type checking with smart path resolution for RequireJS
+// @v  /* 3 · Override document.createElement to patch new script elements immediately */
+  const originalCreateElement = document.createElement;
+  document.createElement = function(tagName) {
+    const element = originalCreateElement.call(this, tagName);
+    
+    if (tagName.toLowerCase() === 'script') {
+      // The script element is already patched by the prototype changes above
+      console.log('[TaleoFix‑v8.6] Created new script element with patches');
+    }
+    
+    return element;
+  };8.6
+// @description  Ultimate MIME type bypass with aggressive early interception and module cleaning
 // @match        https://wipo.taleo.net/careersection/*
 // @run-at       document-start
 // @inject-into  page
@@ -12,12 +23,21 @@
 (() => {
   'use strict';
 
-  console.log('[TaleoFix‑v8.5] Starting comprehensive MIME type bypass...');
+  console.log('[TaleoFix‑v8.6] Starting ultimate MIME type bypass...');
 
   // Store discovered paths and URL mappings
   const urlMapping = new Map();
   const discoveredPaths = new Set();
+  const processedScripts = new Set();
   let realBasePath = null;
+  
+  // Clear any existing RequireJS state to prevent conflicts
+  if (window.requirejs) {
+    console.log('[TaleoFix‑v8.6] Clearing existing RequireJS state...');
+    delete window.requirejs;
+    delete window.require;
+    delete window.define;
+  }
 
   /* 1 · Discover the real base path from first Taleo script */
   function discoverBasePath(url) {
@@ -25,29 +45,49 @@
       const match = url.match(/^(https:\/\/[^\/]+\/careersection\/[^\/]+)/);
       if (match) {
         realBasePath = match[1];
-        console.log('[TaleoFix‑v8.5] Discovered real base path:', realBasePath);
+        console.log('[TaleoFix‑v8.6] Discovered real base path:', realBasePath);
       }
     }
   }
 
-  /* 2 · Enhanced script interception with path discovery */
+  /* 2 · Enhanced script interception with immediate blob conversion */
   function interceptScript(url, setScriptSrc) {
     if (url && url.includes('taleo.net') && url.match(/\.js(\?.*)?$/)) {
-      console.log('[TaleoFix‑v8.4] Intercepting script:', url);
+      // Skip if already processed
+      if (processedScripts.has(url)) {
+        console.log('[TaleoFix‑v8.6] Script already processed, skipping:', url);
+        return false;
+      }
+      
+      console.log('[TaleoFix‑v8.6] Intercepting script:', url);
+      processedScripts.add(url);
       
       // Discover base path from this URL
       discoverBasePath(url);
-      
-      // Store discovered path
       discoveredPaths.add(url);
       
-      // Don't set the original URL, fetch and create blob instead
+      // Immediately fetch and create blob instead of setting original URL
       fetch(url)
-        .then(response => response.text())
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          return response.text();
+        })
         .then(code => {
-          const blob = new Blob([code], { type: 'application/javascript' });
+          // Clean up the code to prevent RequireJS conflicts
+          let cleanCode = code;
+          
+          // If this is a RequireJS module, ensure it's properly isolated
+          if (cleanCode.includes('define(') && !cleanCode.trim().startsWith('define(')) {
+            console.log('[TaleoFix‑v8.6] Cleaning RequireJS module:', url);
+            // Wrap in immediate function to prevent global conflicts
+            cleanCode = `(function() {\n${cleanCode}\n})();`;
+          }
+          
+          const blob = new Blob([cleanCode], { type: 'application/javascript' });
           const blobUrl = URL.createObjectURL(blob);
-          console.log('[TaleoFix‑v8.4] Setting blob URL for:', url);
+          console.log('[TaleoFix‑v8.6] Created clean blob for:', url, '→', blobUrl);
           
           // Store mapping for RequireJS
           urlMapping.set(blobUrl, url);
@@ -55,7 +95,7 @@
           setScriptSrc(blobUrl);
         })
         .catch(err => {
-          console.warn('[TaleoFix‑v8.4] Failed to fetch script, using original:', url, err);
+          console.warn('[TaleoFix‑v8.6] Failed to fetch script, using original:', url, err);
           setScriptSrc(url);
         });
       return true;
@@ -103,24 +143,31 @@
     return element;
   };
 
-  /* 4 · Aggressive script processing function */
+  /* 4 · More aggressive script processing function */
   function processAllScripts() {
     // Find all script tags, including those that might not have been caught yet
     const allScripts = document.querySelectorAll('script');
-    console.log('[TaleoFix‑v8.4] Scanning', allScripts.length, 'total scripts');
+    console.log('[TaleoFix‑v8.6] Scanning', allScripts.length, 'total scripts');
     
     allScripts.forEach(script => {
       const src = script.src || script.getAttribute('src');
       if (src && src.includes('taleo.net') && src.match(/\.js(\?.*)?$/)) {
-        console.log('[TaleoFix‑v8.4] Found Taleo script to process:', src);
+        // Skip if already processed
+        if (processedScripts.has(src)) {
+          console.log('[TaleoFix‑v8.6] Script already processed, skipping:', src);
+          return;
+        }
         
-        // Discover base path and store discovered path
+        console.log('[TaleoFix‑v8.6] Found Taleo script to process:', src);
+        
+        // Mark as processed and discover base path
+        processedScripts.add(src);
         discoverBasePath(src);
         discoveredPaths.add(src);
         
         // Check if it's already a blob URL (already processed)
         if (src.startsWith('blob:')) {
-          console.log('[TaleoFix‑v8.4] Script already processed as blob:', src);
+          console.log('[TaleoFix‑v8.6] Script already processed as blob:', src);
           return;
         }
         
@@ -128,11 +175,26 @@
         const parent = script.parentNode;
         script.remove();
         
-        // Fetch and recreate as blob
+        // Fetch and recreate as blob with cleaning
         fetch(src)
-          .then(response => response.text())
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            return response.text();
+          })
           .then(code => {
-            const blob = new Blob([code], { type: 'application/javascript' });
+            // Clean up the code to prevent RequireJS conflicts
+            let cleanCode = code;
+            
+            // If this is a RequireJS module, ensure it's properly isolated
+            if (cleanCode.includes('define(') && !cleanCode.trim().startsWith('define(')) {
+              console.log('[TaleoFix‑v8.6] Cleaning RequireJS module:', src);
+              // Wrap in immediate function to prevent global conflicts
+              cleanCode = `(function() {\n${cleanCode}\n})();`;
+            }
+            
+            const blob = new Blob([cleanCode], { type: 'application/javascript' });
             const blobUrl = URL.createObjectURL(blob);
             
             // Store mapping for RequireJS
@@ -156,140 +218,80 @@
               document.head.appendChild(newScript);
             }
             
-            console.log('[TaleoFix‑v8.3] Replaced script with blob:', src, '→', blobUrl);
+            console.log('[TaleoFix‑v8.6] Replaced script with clean blob:', src, '→', blobUrl);
           })
           .catch(err => {
-            console.warn('[TaleoFix‑v8.3] Failed to process script:', src, err);
+            console.warn('[TaleoFix‑v8.6] Failed to process script:', src, err);
           });
       }
     });
   }
 
-  /* 5 · Configure RequireJS when it becomes available */
+  /* 5 · Simplified RequireJS configuration - only after all scripts are clean */
   function configureRequireJS() {
-    if (window.requirejs && window.require) {
-      console.log('[TaleoFix‑v8.4] Configuring RequireJS...');
+    // Wait for RequireJS to be available and all initial scripts processed
+    if (window.requirejs && window.require && realBasePath) {
+      console.log('[TaleoFix‑v8.6] Configuring RequireJS...');
       
-      // Use the discovered real base path, or fall back to current path
-      const basePath = realBasePath ? realBasePath.replace('https://wipo.taleo.net', '') : 
-                      window.location.pathname.match(/^(\/careersection\/[^\/]+)/)?.[1] || '/careersection';
-      
-      console.log('[TaleoFix‑v8.4] Using base path:', basePath);
+      const basePath = realBasePath.replace('https://wipo.taleo.net', '') + '/js';
+      console.log('[TaleoFix‑v8.6] Using base path:', basePath);
       
       try {
+        // Simple configuration to avoid conflicts
         window.requirejs.config({
-          baseUrl: basePath + '/js',
+          baseUrl: basePath,
           paths: {
             'fs': 'facetedsearch',
             'jquery': 'common/jquery.min',
             'jquery.cookie': 'common/jquery.cookie'
           },
-          map: {
-            '*': {
-              // Map common module aliases
-              'json2': 'common/json2',
-              'require': 'common/require'
-            }
-          },
           waitSeconds: 60,
-          enforceDefine: false
+          enforceDefine: false,
+          // Prevent caching issues
+          urlArgs: 'bust=' + (new Date()).getTime()
         });
         
-        // Enhanced error handling with path resolution
-        const originalOnError = window.requirejs.onError;
-        window.requirejs.onError = function(error) {
-          console.warn('[TaleoFix‑v8.4] RequireJS Error:', error);
-          
-          // Try to resolve 404s by reconstructing the URL with discovered base path
-          if (error.requireType === 'scripterror' || error.requireType === 'timeout' || 
-              (error.message && (error.message.includes('404') || error.message.includes('Script error')))) {
-            const failedModule = error.requireModules?.[0];
-            if (failedModule && realBasePath) {
-              // Convert module path to actual file path
-              let modulePath = failedModule;
-              if (modulePath.startsWith('fs/')) {
-                modulePath = modulePath.replace('fs/', 'facetedsearch/');
-              }
-              
-              const newUrl = realBasePath + '/js/' + modulePath + '.js';
-              console.log('[TaleoFix‑v8.4] Attempting to resolve failed module:', failedModule, '→', newUrl);
-              
-              // Try to preload the module
-              fetch(newUrl)
-                .then(response => {
-                  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                  return response.text();
-                })
-                .then(code => {
-                  const blob = new Blob([code], { type: 'application/javascript' });
-                  const blobUrl = URL.createObjectURL(blob);
-                  urlMapping.set(blobUrl, newUrl);
-                  
-                  // Create and append script
-                  const script = document.createElement('script');
-                  script.src = blobUrl;
-                  script.type = 'text/javascript';
-                  script.setAttribute('data-requiremodule', failedModule);
-                  document.head.appendChild(script);
-                  
-                  console.log('[TaleoFix‑v8.4] Preloaded failed module as blob:', newUrl);
-                })
-                .catch(err => {
-                  console.warn('[TaleoFix‑v8.4] Failed to preload module:', newUrl, err);
-                  // Call original error handler if preload fails
-                  if (originalOnError) {
-                    originalOnError.call(this, error);
-                  }
-                });
-              return; // Don't call original error handler yet
-            }
-          }
-          
-          // Call original error handler if it exists
-          if (originalOnError) {
-            originalOnError.call(this, error);
-          }
-        };
-        
-        console.log('[TaleoFix‑v8.4] RequireJS configured successfully with base:', basePath);
+        console.log('[TaleoFix‑v8.6] RequireJS configured successfully');
       } catch (err) {
-        console.warn('[TaleoFix‑v8.4] Failed to configure RequireJS:', err);
+        console.warn('[TaleoFix‑v8.6] Failed to configure RequireJS:', err);
       }
-    } else {
-      // Try again in a bit
-      setTimeout(configureRequireJS, 100);
+    } else if (!realBasePath) {
+      // Try again if base path not discovered yet
+      setTimeout(configureRequireJS, 500);
     }
   }
 
-  /* 6 · Enhanced multi-stage processing with path discovery */
-  // Process immediately
+  /* 6 · Streamlined multi-stage processing */
+  // Process immediately and aggressively
   processAllScripts();
   
   // Process when DOM content loads
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-      console.log('[TaleoFix‑v8.4] DOMContentLoaded - processing scripts');
+      console.log('[TaleoFix‑v8.6] DOMContentLoaded - processing scripts');
       processAllScripts();
-      setTimeout(configureRequireJS, 500); // Configure RequireJS after scripts load
+      // Configure RequireJS after a delay to let scripts settle
+      setTimeout(configureRequireJS, 1000);
     });
   } else {
-    setTimeout(configureRequireJS, 500);
+    setTimeout(configureRequireJS, 1000);
   }
   
   // Process on window load as backup
   window.addEventListener('load', () => {
-    console.log('[TaleoFix‑v8.4] Window load - processing scripts');
-    setTimeout(processAllScripts, 50);
-    setTimeout(configureRequireJS, 1000);
+    console.log('[TaleoFix‑v8.6] Window load - final script processing');
+    processAllScripts();
+    setTimeout(configureRequireJS, 1500);
     
     // Log discovered information
-    console.log('[TaleoFix‑v8.4] Discovery summary:');
+    console.log('[TaleoFix‑v8.6] Discovery summary:');
     console.log('  Real base path:', realBasePath);
     console.log('  Discovered paths:', Array.from(discoveredPaths));
+    console.log('  Processed scripts:', Array.from(processedScripts));
     console.log('  URL mappings:', urlMapping.size, 'entries');
   });
 
-  /* 7 · Enhanced MutationObserver for dynamic content */
+  /* 7 · Optimized MutationObserver for dynamic content */
   const observer = new MutationObserver(mutations => {
     mutations.forEach(mutation => {
       mutation.addedNodes.forEach(node => {
@@ -298,11 +300,10 @@
           if (node.tagName === 'SCRIPT') {
             const src = node.src || node.getAttribute('src');
             if (src && src.includes('taleo.net') && src.match(/\.js(\?.*)?$/) && !src.startsWith('blob:')) {
-              console.log('[TaleoFix‑v8.4] Intercepting dynamically added script:', src);
-              // Discover path and store
+              console.log('[TaleoFix‑v8.6] Intercepting dynamically added script:', src);
+              // The script will be automatically handled by our prototype patches
               discoverBasePath(src);
               discoveredPaths.add(src);
-              // The script will be automatically handled by our prototype patches
             }
           }
           
@@ -310,10 +311,10 @@
           if (node.querySelectorAll) {
             const scripts = node.querySelectorAll('script[src*="taleo.net"]');
             if (scripts.length > 0) {
-              console.log('[TaleoFix‑v8.4] Found', scripts.length, 'Taleo scripts in added content');
+              console.log('[TaleoFix‑v8.6] Found', scripts.length, 'Taleo scripts in added content');
               scripts.forEach(script => {
                 const src = script.src || script.getAttribute('src');
-                if (src) {
+                if (src && !src.startsWith('blob:')) {
                   discoverBasePath(src);
                   discoveredPaths.add(src);
                 }
@@ -331,5 +332,5 @@
     subtree: true
   });
 
-  console.log('[TaleoFix‑v8.4] MIME type bypass with enhanced path discovery applied');
+  console.log('[TaleoFix‑v8.6] Ultimate MIME type bypass with module cleaning applied');
 })();
