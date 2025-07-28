@@ -1,27 +1,6 @@
 // ==UserScript==
 // @name         WIPO Taleo MIME Type Fix
-// @namespace    http://tampermo            .then(code => {
-              let cleanCode = code;
-              
-              // Mark RequireJS as ready when it loads
-              if (value.includes('require.js')) {
-                requireJSReady = true;
-                console.log('[TaleoFix‑v8.10] RequireJS detected, marking as ready');
-                setTimeout(executeDelayedScripts, 100);
-              }
-              
-              // Check if this script needs RequireJS
-              if (needsRequireJS(cleanCode, value) && !requireJSReady) {
-                console.log('[TaleoFix‑v8.10] Delaying RequireJS-dependent script:', value);
-                delayedScripts.set(value, { code: cleanCode, element: this, parent: this.parentNode });
-                // Don't set src to prevent immediate execution
-                return;
-              }
-              
-              if (cleanCode.includes('define(') && !cleanCode.trim().startsWith('define(') && !value.includes('require.js')) {
-                console.log('[TaleoFix‑v8.10] Cleaning RequireJS module in setAttribute:', value);
-                cleanCode = `(function() {\n${cleanCode}\n})();`;
-              }et/
+// @namespace    http://tampermonkey.net/
 // @version      8.10
 // @description  Bypass strict MIME type checking on WIPO Taleo job pages with ultra-aggressive interception and execution sequencing
 // @author       Assistant
