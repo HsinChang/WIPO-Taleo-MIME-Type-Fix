@@ -1,18 +1,7 @@
 // ==UserScript==
 // @name         WIPO‑Taleo MIME‑Type Bypass (v8.6)
 // @namespace    https://github.com/HsinChang
-// @v  /* 3 · Override document.createElement to patch new script elements immediately */
-  const originalCreateElement = document.createElement;
-  document.createElement = function(tagName) {
-    const element = originalCreateElement.call(this, tagName);
-    
-    if (tagName.toLowerCase() === 'script') {
-      // The script element is already patched by the prototype changes above
-      console.log('[TaleoFix‑v8.6] Created new script element with patches');
-    }
-    
-    return element;
-  };8.6
+// @version      8.6
 // @description  Ultimate MIME type bypass with aggressive early interception and module cleaning
 // @match        https://wipo.taleo.net/careersection/*
 // @run-at       document-start
@@ -137,7 +126,7 @@
     
     if (tagName.toLowerCase() === 'script') {
       // The script element is already patched by the prototype changes above
-      console.log('[TaleoFix‑v8.3] Created new script element with patches');
+      console.log('[TaleoFix‑v8.6] Created new script element with patches');
     }
     
     return element;
