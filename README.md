@@ -199,17 +199,6 @@ Found an issue? Please report it with:
 
 ---
 
-## 📞 Contact WIPO
-
-**Please encourage WIPO to implement the server-side fix by contacting:**
-- **Technical Support**: Through their official support channels
-- **Career Portal Feedback**: Use feedback forms on their job portal
-- **IT Department**: Request proper MIME type configuration
-
-A simple server-side configuration change would eliminate the need for this workaround entirely and provide a better experience for all job applicants.
-
----
-
 ## License
 
 MIT License - Feel free to use, modify, and distribute.
