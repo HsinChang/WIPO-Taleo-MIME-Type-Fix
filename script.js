@@ -1,92 +1,69 @@
 // ==UserScript==
-// @name         WIPO‑Taleo MIME‑Type Fix (v3)
-// @namespace    https://github.com/your‑name
-// @version      3.0
-// @description  Blocks all Taleo scripts served as HTML, injects RequireJS, then maps those paths to "empty:" so RequireJS never re‑requests them.
+// @name         WIPO‑Taleo MIME‑Type Loader (v4)
+// @namespace    https://github.com/HsinChang
+// @version      4.0
+// @description  Fetch every Taleo JS file as a Blob with the right MIME type and let Chrome run it.
 // @match        https://wipo.taleo.net/careersection/*
 // @run-at       document-start
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @connect      wipo.taleo.net
 // ==/UserScript==
 
 (() => {
   'use strict';
 
-  /* --- 1. Identify any Taleo script under /careersection/.../js/**.js --- */
   const taleoJs = /\/careersection\/[^/]+\/js\/.+\.js(\?.*)?$/i;
 
-  /* Containers for every URL we block so we can alias them later */
-  const blockedUrls = new Set();
+  /** Block <script> tags the moment they appear */
+  function blockAndFetch(node) {
+    const src = node.src;
+    if (!taleoJs.test(src)) return;
 
-  /* ---- 2.  Early‑blockers: Firefox & Chromium paths ---- */
-  document.addEventListener('beforescriptexecute', e => {
-    if (e.target.src && taleoJs.test(e.target.src)) {
-      e.preventDefault();               // stop FF
-      e.stopPropagation();
-      blockedUrls.add(e.target.src);
-      e.target.remove();
-      console.info('[TaleoFix‑v3] blocked (FF):', e.target.src);
-    }
-  });
+    node.type = 'javascript/blocked';
+    node.remove();
+    console.info('[TaleoFix‑v4] fetching as Blob:', src);
 
-  const mo = new MutationObserver(muts => {
-    muts.forEach(m => m.addedNodes.forEach(n => {
-      if (n.nodeType === 1 && n.tagName === 'SCRIPT' && taleoJs.test(n.src || '')) {
-        blockedUrls.add(n.src);
-        n.type = 'javascript/blocked';
-        n.remove();
-        console.info('[TaleoFix‑v3] blocked (MO):', n.src);
-      }
-    }));
-  });
-  mo.observe(document.documentElement, {childList: true, subtree: true});
-
-  /* ---- 3.  After DOM ready: inject RequireJS + JSON2, then alias paths ---- */
-  window.addEventListener('DOMContentLoaded', () => {
-    const inject = url => new Promise(res => {
-      const s = document.createElement('script');
-      s.src = url;
-      s.onload = res;
-      document.head.appendChild(s);
+    GM_xmlhttpRequest({
+      method: 'GET',
+      url: src,
+      responseType: 'text',
+      onload: res => {
+        /** 1️⃣ If the body looks like HTML, don’t eval it – stub it for RequireJS */
+        if (/<!DOCTYPE|<html/i.test(res.responseText)) {
+          console.warn('[TaleoFix‑v4] got HTML, stubbing:', src);
+          stubRequire(src);
+          return;
+        }
+        /** 2️⃣ Package JS bytes in a Blob + inject */
+        const blobURL = URL.createObjectURL(
+          new Blob([res.responseText], { type: 'application/javascript' })
+        );
+        const s = document.createElement('script');
+        s.src = blobURL;
+        document.head.appendChild(s);
+      },
+      onerror: e => {
+        console.error('[TaleoFix‑v4] fetch failed, stubbing:', src, e);
+        stubRequire(src);
+      },
     });
+  }
 
-    /* 3‑A  Bring in a clean RequireJS loader from CDN */
-    inject('https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js')
-      .then(() => {
-        /* 3‑B  Build a paths map: full URL (sans .js)  ->  "empty:"       */
-        const paths = {};
-        blockedUrls.forEach(u => {
-          const noJs = u.replace(/\.js(\?.*)?$/, '');
-          /* RequireJS wants module IDs *relative* to location.origin */
-          const id    = noJs.replace(location.origin + '/', '');
-          paths[id] = 'empty:';         // official stub token
-          console.info('[TaleoFix‑v3] alias', id, '→ empty:');
-        });
+  /** Create an “empty:” shim for RequireJS so it never throws */
+  function stubRequire(url) {
+    const id = url.replace(location.origin + '/', '').replace(/\.js(\?.*)?$/, '');
+    if (window.define && !window.define.amd) return;       // define not ready
+    try { window.define(id, [], () => ({})); }
+    catch (e) { /* define may not be available yet; ignore */ }
+  }
 
-        /* 3‑C  Tell RequireJS to treat them as empty */
-        window.requirejs.config({ paths });
+  /** Firefox path */
+  document.addEventListener('beforescriptexecute', e => blockAndFetch(e.target));
 
-        /* 3‑D  Optional: global onError echos but doesn’t crash the page */
-        window.requirejs.onError = err => {
-          console.warn('[TaleoFix‑v3] RequireJS error (suppressed):', err);
-        };
-      })
-      /* 3‑E  Add JSON2 polyfill for legacy code */
-      .then(() => inject('https://cdnjs.cloudflare.com/ajax/libs/json2/20160511/json2.min.js'))
-      /* 3‑F  Minimal stub for Taleo’s iframe helper */
-      .then(() => {
-        const stub = document.createElement('script');
-        stub.textContent = `
-          window.IFrameCommunication = window.IFrameCommunication || {
-            registerListener: () => {}, postMessage: () => {}
-          };`;
-        document.head.appendChild(stub);
-      })
-      /* 3‑G  Quiet the favicon 404 */
-      .then(() => {
-        const fav = document.createElement('link');
-        fav.rel = 'icon';
-        fav.href = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAQAAACoWZ0kAAAAPElEQVQYV2NkQAP/GZgYGBgY/gMxgImB4T8DxP8nMDIwYGBg+H8GxIAGDI0GkRigGQayAYBMh0j4P///w8DAwMDABrmCiEFcfyPAAAAAElFTkSuQmCC';
-        document.head.appendChild(fav);
-      });
-  });
+  /** Chromium / Edge path */
+  new MutationObserver(muts => {
+    muts.forEach(m => m.addedNodes.forEach(n => {
+      if (n.nodeType === 1 && n.tagName === 'SCRIPT' && n.src) blockAndFetch(n);
+    }));
+  }).observe(document.documentElement, { childList: true, subtree: true });
 })();
