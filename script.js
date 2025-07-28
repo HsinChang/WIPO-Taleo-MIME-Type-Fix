@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         WIPO‑Taleo MIME‑Type Loader (v4)
+// @name         WIPO‑Taleo MIME‑Type Loader (v5)
 // @namespace    https://github.com/HsinChang
-// @version      4.0
-// @description  Fetch every Taleo JS file as a Blob with the right MIME type and let Chrome run it.
+// @version      5.0
+// @description  Fetch Taleo JS files as Blobs with the right MIME type and preload a clean RequireJS.
 // @match        https://wipo.taleo.net/careersection/*
 // @run-at       document-start
 // @grant        GM_xmlhttpRequest
@@ -13,28 +13,43 @@
   'use strict';
 
   const taleoJs = /\/careersection\/[^/]+\/js\/.+\.js(\?.*)?$/i;
+  const requirePath = /\/js\/common\/require\.js(\?.*)?$/i;
 
-  /** Block <script> tags the moment they appear */
+  /* -- 0. helper: stub a module ID for RequireJS ------------------------- */
+  function stub(id) {
+    if (window.define && window.define.amd) {
+      try { window.define(id, [], () => ({})); } catch (_) {}
+    }
+  }
+
+  /* -- 1. For *any* Taleo script tag, block & fetch ---------------------- */
   function blockAndFetch(node) {
     const src = node.src;
     if (!taleoJs.test(src)) return;
 
-    node.type = 'javascript/blocked';
+    node.type = 'javascript/blocked';   // Neutralise execution
     node.remove();
-    console.info('[TaleoFix‑v4] fetching as Blob:', src);
+
+    /* 1‑A: If this is the built‑in require.js, skip fetch and load cdnjs. */
+    if (requirePath.test(src)) {
+      console.info('[TaleoFix‑v5] replacing Taleo require.js with cdnjs copy');
+      loadCDNRequire(src);   // also stubs the original path
+      return;
+    }
+
+    /* 1‑B: All other Taleo files – fetch, MIME‑patch, inject. */
+    console.info('[TaleoFix‑v5] fetching as Blob:', src);
 
     GM_xmlhttpRequest({
       method: 'GET',
       url: src,
       responseType: 'text',
       onload: res => {
-        /** 1️⃣ If the body looks like HTML, don’t eval it – stub it for RequireJS */
         if (/<!DOCTYPE|<html/i.test(res.responseText)) {
-          console.warn('[TaleoFix‑v4] got HTML, stubbing:', src);
-          stubRequire(src);
+          console.warn('[TaleoFix‑v5] got HTML; stubbing:', src);
+          stub(toId(src));
           return;
         }
-        /** 2️⃣ Package JS bytes in a Blob + inject */
         const blobURL = URL.createObjectURL(
           new Blob([res.responseText], { type: 'application/javascript' })
         );
@@ -43,27 +58,49 @@
         document.head.appendChild(s);
       },
       onerror: e => {
-        console.error('[TaleoFix‑v4] fetch failed, stubbing:', src, e);
-        stubRequire(src);
+        console.error('[TaleoFix‑v5] fetch failed; stubbing:', src, e);
+        stub(toId(src));
       },
     });
   }
 
-  /** Create an “empty:” shim for RequireJS so it never throws */
-  function stubRequire(url) {
-    const id = url.replace(location.origin + '/', '').replace(/\.js(\?.*)?$/, '');
-    if (window.define && !window.define.amd) return;       // define not ready
-    try { window.define(id, [], () => ({})); }
-    catch (e) { /* define may not be available yet; ignore */ }
+  /* -- 2. Utility: convert full URL → module id used by RequireJS -------- */
+  const toId = url =>
+    url.replace(location.origin + '/', '').replace(/\.js(\?.*)?$/, '');
+
+  /* -- 3. Load RequireJS from cdnjs, then stub original path ------------- */
+  function loadCDNRequire(originalUrl) {
+    // Inject clean RequireJS (only once)
+    if (!window._cleanRequireInjected) {
+      window._cleanRequireInjected = true;
+      const cdn = document.createElement('script');
+      cdn.src = 'https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js';
+      document.head.appendChild(cdn);
+    }
+    // Tell RequireJS “if you ever ask for that old path, treat it as empty”
+    const id = toId(originalUrl);
+    stub(id);
   }
 
-  /** Firefox path */
+  /* -- 4. Early scanners ------------------------------------------------- */
+  // 4‑A: Firefox – catch scripts before they run
   document.addEventListener('beforescriptexecute', e => blockAndFetch(e.target));
 
-  /** Chromium / Edge path */
+  // 4‑B: Chromium – MutationObserver for scripts added dynamically
   new MutationObserver(muts => {
     muts.forEach(m => m.addedNodes.forEach(n => {
       if (n.nodeType === 1 && n.tagName === 'SCRIPT' && n.src) blockAndFetch(n);
     }));
   }).observe(document.documentElement, { childList: true, subtree: true });
+
+  // 4‑C: Static script tags that already exist in the parsed HTML head
+  //      (important for the very first require.js)
+  Array.from(document.getElementsByTagName('script')).forEach(blockAndFetch);
+
+  /* -- 5. Quick favicon patch to silence 404 ----------------------------- */
+  const fav = document.createElement('link');
+  fav.rel = 'icon';
+  fav.href =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAQAAACoWZ0kAAAAPElEQVQYV2NkQAP/GZgYGBgY/gMxgImB4T8DxP8nMDIwYGBg+H8GxIAGDI0GkRigGQayAYBMh0j4P///w8DAwMDABrmCiEFcfyPAAAAAElFTkSuQmCC';
+  document.head.appendChild(fav);
 })();
